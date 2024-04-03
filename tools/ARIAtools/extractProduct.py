@@ -967,6 +967,13 @@ def handle_epoch_layers(layers,
 
     return
 
+# converts num_threads into a int 
+def find_num_threads(num_threads):
+    try:
+        num_threads_int = int(num_threads)
+        return num_threads_int
+    except ValueError:
+        return os.cpu_count()        
 
 def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                     arrres, rankedResampling=False, dem=None, lat=None,
@@ -1200,7 +1207,7 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                 'outputFormat': outputFormat,
                 'stitchMethodType': stitchMethodType,
                 'verbose': verbose,
-                'num_threads': num_threads,
+                'num_threads': find_num_threads(num_threads),
                 'multilooking': multilooking,
                 'bounds': bounds,
                 'dem_bounds': dem_bounds,
