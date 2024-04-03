@@ -8,6 +8,7 @@ Author(s): Simran Sangha, David Bekaert, & Emre Havazli
 # Import functions
 from ARIAtools.tsSetup import cmd_line_parse, main
 from pkg_resources import get_distribution
+import pudb
 
 if __name__ == '__main__':
     try:
@@ -15,4 +16,5 @@ if __name__ == '__main__':
     except:
         pass
     inps = cmd_line_parse()
+    pu.db
     main(inps)
