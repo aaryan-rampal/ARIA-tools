@@ -11,6 +11,8 @@ Extract and organize specified layer(s).
 If no layer is specified, extract product bounding box shapefile(s)
 """
 
+from functools import partial
+import multiprocessing
 import os
 os.environ['USE_PYGEOS'] = '0'
 
@@ -1177,64 +1179,131 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         # Iterate through all IFGs
         # TODO can we wrap this into funtion and run it
         # with multiprocessing, to gain speed up
+        manager = multiprocessing.Manager()
+        error_queue = manager.Queue()
+
         for i in enumerate(product_dict[0]):
-            ifg = product_dict[1][i[0]][0]
-            outname = os.path.abspath(os.path.join(workdir, ifg))
+            parameters = {
+                'lock' : multiprocessing.Lock(),
+                'ref_arr' : None,
+                'ref_wid' : None,
+                'full_product_dict': full_product_dict,
+                'prods_TOTbbox': prods_TOTbbox,
+                'layers': layers,
+                'arrres': arrres,
+                'rankedResampling': rankedResampling,
+                'dem': dem,
+                'lat': lat,
+                'lon': lon,
+                'mask': mask,
+                'outDir': outDir,
+                'outputFormat': outputFormat,
+                'stitchMethodType': stitchMethodType,
+                'verbose': verbose,
+                'num_threads': num_threads,
+                'multilooking': multilooking,
+                'bounds': bounds,
+                'dem_bounds': dem_bounds,
+                'outputFormatPhys': outputFormatPhys,
+                'gdal_warp_kwargs': gdal_warp_kwargs,
+                'key': key,
+                'workdir': workdir,
+                'product_dict': product_dict,
+                'prog_bar': prog_bar,
+                'key_ind': key_ind,
+                'error_queue': error_queue
+            }
+
+            # ref_wid, ref_hgt, ref_geotrans, prev_outname = iterate_ifg(
+            #     full_product_dict, prods_TOTbbox, layers, arrres, rankedResampling, dem, lat, 
+            #     lon, mask, outDir, outputFormat, stitchMethodType, verbose, num_threads, 
+            #     multilooking, bounds, dem_bounds, outputFormatPhys, gdal_warp_kwargs, key, 
+            #     workdir, i, product_dict, prog_bar, key_ind, error_queue)
+            
+            # pool = multiprocessing.Pool(processes=num_threads) 
+            partial_process_ifg = partial(iterate_ifg, **parameters)
+            # pool.map(partial_process_ifg)
+            with multiprocessing.Pool() as pool:
+                for _ in range(num_threads):
+                    pool.apply(partial_process_ifg)
+
+            # # Wait for all processes to complete
+            # for result in results:
+            #     result.get()
+
+        prog_bar.close()
+
+        # check directory for quality control plots
+        plots_subdir = os.path.abspath(os.path.join(outDir,
+                                       'metadatalyr_plots'))
+        # delete directory if empty
+        if os.path.exists(plots_subdir):
+            if len(os.listdir(plots_subdir)) == 0:
+                shutil.rmtree(plots_subdir)
+
+    return [ref_hgt, ref_wid, ref_geotrans, prev_outname]
+
+def iterate_ifg(lock, ref_arr, ref_wid, full_product_dict, prods_TOTbbox, layers, arrres, rankedResampling, dem, lat
+                , lon, mask, outDir, outputFormat, stitchMethodType, verbose, num_threads, multilooking
+                , bounds, dem_bounds, outputFormatPhys, gdal_warp_kwargs, key, workdir, i, 
+                product_dict, prog_bar, key_ind, error_queue):
+    ifg = product_dict[1][i[0]][0]
+    outname = os.path.abspath(os.path.join(workdir, ifg))
             # Update progress bar
-            prog_bar.update(i[0]+1, suffix=ifg)
+    prog_bar.update(i[0]+1, suffix=ifg)
 
             # Extract/crop metadata layers
-            if any(":/science/grids/imagingGeometry"
+    if any(":/science/grids/imagingGeometry"
                    in s for s in i[1]):
                 # make VRT pointing to metadata layers in standard product
-                hgt_field, model_name, outname = prep_metadatalayers(outname,
+        hgt_field, model_name, outname = prep_metadatalayers(outname,
                                                       i[1], dem, key, layers)
 
                 # Interpolate/intersect with DEM before cropping
-                finalize_metadata(outname, bounds, dem_bounds,
+        finalize_metadata(outname, bounds, dem_bounds,
                                   prods_TOTbbox, dem, lat, lon, hgt_field,
                                   i[1], mask, outputFormatPhys,
                                   verbose=verbose)
 
             # Extract/crop full res layers, except for "unw" and "conn_comp"
             # which requires advanced stitching
-            elif key != 'unwrappedPhase' and \
+    elif key != 'unwrappedPhase' and \
                     key != 'connectedComponents':
-                if outputFormat == 'VRT':
+        if outputFormat == 'VRT':
                     # building the virtual vrt
-                    gdal.BuildVRT(outname + "_uncropped" + '.vrt', i[1])
+            gdal.BuildVRT(outname + "_uncropped" + '.vrt', i[1])
                     # building the cropped vrt
-                    gdal.Warp(outname+'.vrt',
+            gdal.Warp(outname+'.vrt',
                               outname+'_uncropped.vrt',
                               options=gdal.WarpOptions(**gdal_warp_kwargs))
-                else:
+        else:
                     # building the VRT
-                    gdal.BuildVRT(outname + '.vrt', i[1])
-                    gdal.Warp(outname,
+            gdal.BuildVRT(outname + '.vrt', i[1])
+            gdal.Warp(outname,
                               outname+'.vrt',
                               options=gdal.WarpOptions(**gdal_warp_kwargs))
 
                     # Update VRT
-                    gdal.Translate(outname+'.vrt', outname,
+            gdal.Translate(outname+'.vrt', outname,
                                    options=gdal.TranslateOptions(format="VRT"))
 
             # Extract/crop phs and conn_comp layers
-            else:
+    else:
                 # get connected component input files
-                conn_files = full_product_dict[i[0]]['connectedComponents']
-                prod_bbox_files = \
+        conn_files = full_product_dict[i[0]]['connectedComponents']
+        prod_bbox_files = \
                     full_product_dict[i[0]]['productBoundingBoxFrames']
-                outFileConnComp = \
+        outFileConnComp = \
                     os.path.join(outDir, 'connectedComponents', ifg)
 
                 # Check if phs phase and conn_comp files are already generated
-                outFilePhs = os.path.join(outDir, 'unwrappedPhase', ifg)
-                if not os.path.exists(outFilePhs) or not \
+        outFilePhs = os.path.join(outDir, 'unwrappedPhase', ifg)
+        if not os.path.exists(outFilePhs) or not \
                         os.path.exists(outFileConnComp):
-                    phs_files = full_product_dict[i[0]]['unwrappedPhase']
+            phs_files = full_product_dict[i[0]]['unwrappedPhase']
                     # calling the stitching methods
-                    if stitchMethodType == 'overlap':
-                        product_stitch_overlap(phs_files, conn_files,
+            if stitchMethodType == 'overlap':
+                product_stitch_overlap(phs_files, conn_files,
                                                arrres,
                                                prod_bbox_files, bounds,
                                                prods_TOTbbox,
@@ -1244,8 +1313,8 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                                                outputFormat=outputFormatPhys,
                                                verbose=verbose)
 
-                    elif stitchMethodType == '2stage':
-                        product_stitch_2stage(phs_files,
+            elif stitchMethodType == '2stage':
+                product_stitch_2stage(phs_files,
                                               conn_files,
                                               arrres,
                                               bounds,
@@ -1256,8 +1325,8 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                                               outputFormat=outputFormatPhys,
                                               verbose=verbose)
 
-                    elif stitchMethodType == 'sequential':
-                        product_stitch_sequential(phs_files,
+            elif stitchMethodType == 'sequential':
+                product_stitch_sequential(phs_files,
                                                   conn_files,
                                                   arrres=arrres,
                                                   bounds=bounds,
@@ -1272,66 +1341,56 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                         # verbose=verbose)
 
                     # If necessary, resample phs/conn_comp file
-                    if multilooking is not None:
-                        resampleRaster(outFilePhs, multilooking, bounds,
+            if multilooking is not None:
+                resampleRaster(outFilePhs, multilooking, bounds,
                                        prods_TOTbbox, rankedResampling,
                                        outputFormat=outputFormatPhys,
                                        num_threads=num_threads)
                     # Apply mask (if specified)
-                    if mask is not None:
-                        for j in [outFileConnComp, outFilePhs]:
-                            update_file = gdal.Open(j, gdal.GA_Update)
-                            mask_arr = mask.ReadAsArray() * \
+            if mask is not None:
+                for j in [outFileConnComp, outFilePhs]:
+                    update_file = gdal.Open(j, gdal.GA_Update)
+                    mask_arr = mask.ReadAsArray() * \
                                 gdal.Open(j + '.vrt').ReadAsArray()
-                            update_file.GetRasterBand(1).WriteArray(mask_arr)
-                            del update_file, mask_arr
+                    update_file.GetRasterBand(1).WriteArray(mask_arr)
+                    del update_file, mask_arr
 
-            if key != 'unwrappedPhase' and \
+    if key != 'unwrappedPhase' and \
                     key != 'connectedComponents' and \
                     not any(":/science/grids/imagingGeometry"
                        in s for s in i[1]) and \
                     not any(":/science/grids/corrections"
                        in s for s in i[1]):
                 # If necessary, resample raster
-                if multilooking is not None:
-                    resampleRaster(outname, multilooking, bounds,
+        if multilooking is not None:
+            resampleRaster(outname, multilooking, bounds,
                                    prods_TOTbbox,
                                    rankedResampling,
                                    outputFormat=outputFormatPhys,
                                    num_threads=num_threads)
                 # Apply mask (if specified)
-                if mask is not None:
-                    update_file = gdal.Open(outname, gdal.GA_Update)
-                    mask_arr = mask.ReadAsArray() * \
+        if mask is not None:
+            update_file = gdal.Open(outname, gdal.GA_Update)
+            mask_arr = mask.ReadAsArray() * \
                         gdal.Open(outname + '.vrt').ReadAsArray()
-                    update_file.GetRasterBand(1).WriteArray(mask_arr)
-                    del update_file, mask_arr
+            update_file.GetRasterBand(1).WriteArray(mask_arr)
+            del update_file, mask_arr
 
             # Track consistency of dimensions
-            if key_ind == 0:
-                ref_wid, ref_hgt, ref_geotrans, \
-                    _, _ = get_basic_attrs(outname + '.vrt')
-                ref_arr = [ref_wid, ref_hgt, ref_geotrans,
-                           os.path.join(workdir, ifg)]
-            else:
-                prod_wid, prod_hgt, prod_geotrans, \
-                    _, _ = get_basic_attrs(outname + '.vrt')
-                prod_arr = [prod_wid, prod_hgt, prod_geotrans,
+    if key_ind == 0:
+        with lock:
+            ref_wid, ref_hgt, ref_geotrans, \
+                        _, _ = get_basic_attrs(outname + '.vrt')
+            ref_arr = [ref_wid, ref_hgt, ref_geotrans,
                             os.path.join(workdir, ifg)]
-                dim_check(ref_arr, prod_arr)
-            prev_outname = os.path.abspath(os.path.join(workdir, ifg))
-
-        prog_bar.close()
-
-        # check directory for quality control plots
-        plots_subdir = os.path.abspath(os.path.join(outDir,
-                                       'metadatalyr_plots'))
-        # delete directory if empty
-        if os.path.exists(plots_subdir):
-            if len(os.listdir(plots_subdir)) == 0:
-                shutil.rmtree(plots_subdir)
-
-    return [ref_hgt, ref_wid, ref_geotrans, prev_outname]
+    else:
+        prod_wid, prod_hgt, prod_geotrans,   \
+                    _, _ = get_basic_attrs(outname + '.vrt')
+        prod_arr = [prod_wid, prod_hgt, prod_geotrans,
+                            os.path.join(workdir, ifg)]
+        dim_check(ref_arr, prod_arr)
+    prev_outname = os.path.abspath(os.path.join(workdir, ifg))
+    return ref_wid,ref_hgt,ref_geotrans,prev_outname
 
 
 def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, dem,
