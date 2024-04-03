@@ -1189,54 +1189,64 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         manager = multiprocessing.Manager()
         error_queue = manager.Queue()
 
-        for i in enumerate(product_dict[0]):
-            parameters = {
-                'lock' : multiprocessing.Lock(),
-                'ref_arr' : None,
-                'ref_wid' : None,
-                'full_product_dict': full_product_dict,
-                'prods_TOTbbox': prods_TOTbbox,
-                'layers': layers,
-                'arrres': arrres,
-                'rankedResampling': rankedResampling,
-                'dem': dem,
-                'lat': lat,
-                'lon': lon,
-                'mask': mask,
-                'outDir': outDir,
-                'outputFormat': outputFormat,
-                'stitchMethodType': stitchMethodType,
-                'verbose': verbose,
-                'num_threads': find_num_threads(num_threads),
-                'multilooking': multilooking,
-                'bounds': bounds,
-                'dem_bounds': dem_bounds,
-                'outputFormatPhys': outputFormatPhys,
-                'gdal_warp_kwargs': gdal_warp_kwargs,
-                'key': key,
-                'workdir': workdir,
-                'product_dict': product_dict,
-                'prog_bar': prog_bar,
-                'key_ind': key_ind,
-                'error_queue': error_queue
-            }
+        # dict of parameters to make life easier
+        parameters = {
+            'ref_arr' : None,
+            'ref_wid' : None,
+            'full_product_dict': full_product_dict,
+            'prods_TOTbbox': prods_TOTbbox,
+            'layers': layers,
+            'arrres': arrres,
+            'rankedResampling': rankedResampling,
+            'dem': dem,
+            'lat': lat,
+            'lon': lon,
+            'mask': mask,
+            'outDir': outDir,
+            'outputFormat': outputFormat,
+            'stitchMethodType': stitchMethodType,
+            'verbose': verbose,
+            'num_threads': find_num_threads(num_threads),
+            'multilooking': multilooking,
+            'bounds': bounds,
+            'dem_bounds': dem_bounds,
+            'outputFormatPhys': outputFormatPhys,
+            'gdal_warp_kwargs': gdal_warp_kwargs,
+            'key': key,
+            'workdir': workdir,
+            'product_dict': product_dict,
+            'prog_bar': prog_bar,
+            'key_ind': key_ind,
+            'error_queue': error_queue
+        }        
+        
+        with multiprocessing.Pool(processes=find_num_threads(num_threads)) as pool:
+            results = []
 
-            # ref_wid, ref_hgt, ref_geotrans, prev_outname = iterate_ifg(
-            #     full_product_dict, prods_TOTbbox, layers, arrres, rankedResampling, dem, lat, 
-            #     lon, mask, outDir, outputFormat, stitchMethodType, verbose, num_threads, 
-            #     multilooking, bounds, dem_bounds, outputFormatPhys, gdal_warp_kwargs, key, 
-            #     workdir, i, product_dict, prog_bar, key_ind, error_queue)
-            
-            # pool = multiprocessing.Pool(processes=num_threads) 
-            partial_process_ifg = partial(iterate_ifg, **parameters)
-            # pool.map(partial_process_ifg)
-            with multiprocessing.Pool() as pool:
-                for _ in range(num_threads):
-                    pool.apply(partial_process_ifg)
+            # extract enumerated list and last index variable for ease
+            enum_list = list(enumerate(product_dict[0]))
+            last_idx = len(enum_list) - 1
 
-            # # Wait for all processes to complete
-            # for result in results:
-            #     result.get()
+            for i, elem in enum_list:
+                partial_process_ifg = partial(iterate_ifg, **parameters, i = i)
+                result = pool.apply_async(partial_process_ifg)
+                # iterate_ifg creates ref_arr, ref_wid, and ref_geotrans if 
+                # key_ind is 0 so we need to wait before we launch other processes
+                if key_ind == 0:
+                    result.wait()
+                else:
+                    results.append(result)
+
+            for result in results:
+                result.wait()
+
+            # special treatment for last process
+            # partial_process_ifg = partial(iterate_ifg, **parameters, i = last_idx)
+            # final_result = pool.apply_async(partial_process_ifg)
+            # final_result.wait()
+
+            ifg = product_dict[1][last_idx][0]
+            prev_outname = os.path.abspath(os.path.join(workdir, ifg))
 
         prog_bar.close()
 
@@ -1250,7 +1260,7 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
 
     return [ref_hgt, ref_wid, ref_geotrans, prev_outname]
 
-def iterate_ifg(lock, ref_arr, ref_wid, full_product_dict, prods_TOTbbox, layers, arrres, rankedResampling, dem, lat
+def iterate_ifg(ref_arr, ref_wid, full_product_dict, prods_TOTbbox, layers, arrres, rankedResampling, dem, lat
                 , lon, mask, outDir, outputFormat, stitchMethodType, verbose, num_threads, multilooking
                 , bounds, dem_bounds, outputFormatPhys, gdal_warp_kwargs, key, workdir, i, 
                 product_dict, prog_bar, key_ind, error_queue):
@@ -1385,7 +1395,6 @@ def iterate_ifg(lock, ref_arr, ref_wid, full_product_dict, prods_TOTbbox, layers
 
             # Track consistency of dimensions
     if key_ind == 0:
-        with lock:
             ref_wid, ref_hgt, ref_geotrans, \
                         _, _ = get_basic_attrs(outname + '.vrt')
             ref_arr = [ref_wid, ref_hgt, ref_geotrans,
@@ -1396,8 +1405,8 @@ def iterate_ifg(lock, ref_arr, ref_wid, full_product_dict, prods_TOTbbox, layers
         prod_arr = [prod_wid, prod_hgt, prod_geotrans,
                             os.path.join(workdir, ifg)]
         dim_check(ref_arr, prod_arr)
-    prev_outname = os.path.abspath(os.path.join(workdir, ifg))
-    return ref_wid,ref_hgt,ref_geotrans,prev_outname
+
+    return ref_wid,ref_hgt,ref_geotrans
 
 
 def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, dem,
