@@ -975,15 +975,6 @@ def find_num_threads(num_threads):
     except ValueError:
         return os.cpu_count()      
 
-class References():
-    def __init__(self):
-        self.ref_wid = None
-        self.ref_hgt = None
-        self.ref_geotrans = None
-    def update_values(self, wid, hgt, geotrans):
-        self.ref_wid = wid
-        self.ref_hgt = hgt
-        self.ref_geotrans = geotrans
 
 def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                     arrres, rankedResampling=False, dem=None, lat=None,
@@ -1005,9 +996,13 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         return  # only bbox
 
     # initiate tracker of output dimensions
-    ref_wid = None
-    ref_hgt = None
-    ref_geotrans = None
+    # ref_wid = None
+    # ref_hgt = None
+    # ref_geotrans = None
+    manager = multiprocessing.Manager()
+    ref_wid = manager.Value('val', None)
+    ref_hgt = manager.Value('val', None)
+    ref_geotrans = manager.Value('val', None)
 
     # create dictionary of all inputs needed for correction lyr extraction
     lyr_input_dict = {
@@ -1101,9 +1096,9 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
 
         # track consistency of dimensions
         if 'prev_outname_check' in locals():
-            ref_wid, ref_hgt, ref_geotrans, \
+            ref_wid.value, ref_hgt.value, ref_geotrans.value, \
                 _, _ = get_basic_attrs(prev_outname_check + '.vrt')
-            ref_arr = [ref_wid, ref_hgt, ref_geotrans,
+            ref_arr = [ref_wid.value, ref_hgt.value, ref_geotrans.value,
                        prev_outname]
 
     # If specified, extract solid earth tides
@@ -1140,9 +1135,9 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         # Track consistency of dimensions
         prev_outname = os.path.abspath(os.path.join(workdir,
                                        product_dict[1][0][0]))
-        ref_wid, ref_hgt, ref_geotrans, \
+        ref_wid.value, ref_hgt.value, ref_geotrans.value, \
             _, _ = get_basic_attrs(prev_outname + '.vrt')
-        ref_arr = [ref_wid, ref_hgt, ref_geotrans,
+        ref_arr = [ref_wid.value, ref_hgt.value, ref_geotrans.value,
                    prev_outname]
 
     # If specified, extract ionosphere long wavelength
@@ -1201,7 +1196,10 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
 
         # dict of parameters to make life easier
         parameters = {
-            'ref_arr' : None,
+            'ref_arr' : [],
+            'ref_wid' : ref_wid,
+            'ref_hgt' : ref_hgt,
+            'ref_geotrans' : ref_geotrans,
             'full_product_dict': full_product_dict,
             'prods_TOTbbox': prods_TOTbbox,
             'layers': layers,
@@ -1229,36 +1227,36 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
             'error_queue': error_queue
         }        
 
-        refs = References()
+        pool = multiprocessing.Pool(processes=find_num_threads(num_threads))
+        results = []
 
-        with multiprocessing.Pool(processes=find_num_threads(num_threads)) as pool:
-            results = []
+        # extract enumerated list and last index variable for ease
+        enum_list = list(enumerate(product_dict[0]))
+        last_idx = len(enum_list) - 1
 
-            # extract enumerated list and last index variable for ease
-            enum_list = list(enumerate(product_dict[0]))
-            last_idx = len(enum_list) - 1
+        for i in enum_list:
+            partial_process_ifg = partial(iterate_ifg, **parameters, i = i)
+            # iterate_ifg creates ref_arr, ref_wid, and ref_geotrans if 
+            # key_ind is 0 so we need to wait before we launch other processes
+            if key_ind == 0:
+                result = pool.apply_async(partial_process_ifg, callback=update_values)
+                pool.close()
+                pool.join()
+                pool = multiprocessing.Pool(processes=find_num_threads(num_threads))
+            else:
+                result = pool.apply_async(partial_process_ifg)
+                results.append(result)
 
-            for i in enum_list:
-                partial_process_ifg = partial(iterate_ifg, **parameters, i = i)
-                # iterate_ifg creates ref_arr, ref_wid, and ref_geotrans if 
-                # key_ind is 0 so we need to wait before we launch other processes
-                if key_ind == 0:
-                    result = pool.apply_async(partial_process_ifg, callback=refs.update_values)
-                    result.wait()
-                else:
-                    result = pool.apply_async(partial_process_ifg)
-                    results.append(result)
+        for result in results:
+            result.wait()
 
-            for result in results:
-                result.wait()
+        # special treatment for last process
+        # partial_process_ifg = partial(iterate_ifg, **parameters, i = last_idx)
+        # final_result = pool.apply_async(partial_process_ifg)
+        # final_result.wait()
 
-            # special treatment for last process
-            # partial_process_ifg = partial(iterate_ifg, **parameters, i = last_idx)
-            # final_result = pool.apply_async(partial_process_ifg)
-            # final_result.wait()
-
-            ifg = product_dict[1][last_idx][0]
-            prev_outname = os.path.abspath(os.path.join(workdir, ifg))
+        ifg = product_dict[1][last_idx][0]
+        prev_outname = os.path.abspath(os.path.join(workdir, ifg))
 
         prog_bar.close()
 
@@ -1270,12 +1268,12 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
             if len(os.listdir(plots_subdir)) == 0:
                 shutil.rmtree(plots_subdir)
 
-    return [refs.ref_hgt, refs.ref_wid, refs.ref_geotrans, prev_outname]
+    return [ref_hgt.value, ref_wid.value, ref_geotrans.value, prev_outname]
 
 def iterate_ifg(ref_arr, full_product_dict, prods_TOTbbox, layers, arrres, rankedResampling, dem, lat
                 , lon, mask, outDir, outputFormat, stitchMethodType, verbose, num_threads, multilooking
                 , bounds, dem_bounds, outputFormatPhys, gdal_warp_kwargs, key, workdir, i, 
-                product_dict, prog_bar, key_ind, error_queue):
+                product_dict, prog_bar, key_ind, error_queue, ref_wid, ref_hgt, ref_geotrans):
     ifg = product_dict[1][i[0]][0]
     outname = os.path.abspath(os.path.join(workdir, ifg))
             # Update progress bar
@@ -1407,9 +1405,9 @@ def iterate_ifg(ref_arr, full_product_dict, prods_TOTbbox, layers, arrres, ranke
 
             # Track consistency of dimensions
     if key_ind == 0:
-            ref_wid, ref_hgt, ref_geotrans, \
+            ref_wid.value, ref_hgt.value, ref_geotrans.value, \
                         _, _ = get_basic_attrs(outname + '.vrt')
-            ref_arr = [ref_wid, ref_hgt, ref_geotrans,
+            ref_arr = [ref_wid.value, ref_hgt.value, ref_geotrans.value,
                             os.path.join(workdir, ifg)]
     else:
         prod_wid, prod_hgt, prod_geotrans,   \
@@ -1418,7 +1416,7 @@ def iterate_ifg(ref_arr, full_product_dict, prods_TOTbbox, layers, arrres, ranke
                             os.path.join(workdir, ifg)]
         dim_check(ref_arr, prod_arr)
 
-    return ref_wid,ref_hgt,ref_geotrans,ref_arr
+    return [ref_wid.value,ref_hgt.value,ref_geotrans.value,ref_arr]
 
 
 def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, dem,
