@@ -973,7 +973,17 @@ def find_num_threads(num_threads):
         num_threads_int = int(num_threads)
         return num_threads_int
     except ValueError:
-        return os.cpu_count()        
+        return os.cpu_count()      
+
+class References():
+    def __init__(self):
+        self.ref_wid = None
+        self.ref_hgt = None
+        self.ref_geotrans = None
+    def update_values(self, wid, hgt, geotrans):
+        self.ref_wid = wid
+        self.ref_hgt = hgt
+        self.ref_geotrans = geotrans
 
 def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                     arrres, rankedResampling=False, dem=None, lat=None,
@@ -1192,7 +1202,6 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         # dict of parameters to make life easier
         parameters = {
             'ref_arr' : None,
-            'ref_wid' : None,
             'full_product_dict': full_product_dict,
             'prods_TOTbbox': prods_TOTbbox,
             'layers': layers,
@@ -1219,7 +1228,9 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
             'key_ind': key_ind,
             'error_queue': error_queue
         }        
-        
+
+        refs = References()
+
         with multiprocessing.Pool(processes=find_num_threads(num_threads)) as pool:
             results = []
 
@@ -1227,14 +1238,15 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
             enum_list = list(enumerate(product_dict[0]))
             last_idx = len(enum_list) - 1
 
-            for i, elem in enum_list:
+            for i in enum_list:
                 partial_process_ifg = partial(iterate_ifg, **parameters, i = i)
-                result = pool.apply_async(partial_process_ifg)
                 # iterate_ifg creates ref_arr, ref_wid, and ref_geotrans if 
                 # key_ind is 0 so we need to wait before we launch other processes
                 if key_ind == 0:
+                    result = pool.apply_async(partial_process_ifg, callback=refs.update_values)
                     result.wait()
                 else:
+                    result = pool.apply_async(partial_process_ifg)
                     results.append(result)
 
             for result in results:
@@ -1258,9 +1270,9 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
             if len(os.listdir(plots_subdir)) == 0:
                 shutil.rmtree(plots_subdir)
 
-    return [ref_hgt, ref_wid, ref_geotrans, prev_outname]
+    return [refs.ref_hgt, refs.ref_wid, refs.ref_geotrans, prev_outname]
 
-def iterate_ifg(ref_arr, ref_wid, full_product_dict, prods_TOTbbox, layers, arrres, rankedResampling, dem, lat
+def iterate_ifg(ref_arr, full_product_dict, prods_TOTbbox, layers, arrres, rankedResampling, dem, lat
                 , lon, mask, outDir, outputFormat, stitchMethodType, verbose, num_threads, multilooking
                 , bounds, dem_bounds, outputFormatPhys, gdal_warp_kwargs, key, workdir, i, 
                 product_dict, prog_bar, key_ind, error_queue):
@@ -1406,7 +1418,7 @@ def iterate_ifg(ref_arr, ref_wid, full_product_dict, prods_TOTbbox, layers, arrr
                             os.path.join(workdir, ifg)]
         dim_check(ref_arr, prod_arr)
 
-    return ref_wid,ref_hgt,ref_geotrans
+    return ref_wid,ref_hgt,ref_geotrans,ref_arr
 
 
 def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, dem,
@@ -1560,8 +1572,7 @@ def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, dem,
 
 
 def gacos_correction(full_product_dict, gacos_products, bbox_file,
-                     prods_TOTbbox, outDir='./', outputFormat='VRT',
-                     verbose=None, num_threads='2'):
+                     prods_TOTbbox, outDir='./', outputFormat='VRT',                     verbose=None, num_threads='2'):
     """Perform tropospheric corrections.
     Must provide valid path to GACOS products.
     All products are cropped by the bounds from the input bbox_file,
