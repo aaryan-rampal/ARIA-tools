@@ -975,6 +975,8 @@ def find_num_threads(num_threads):
     except ValueError:
         return os.cpu_count()      
 
+def update_values(result):
+    print(result)
 
 def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                     arrres, rankedResampling=False, dem=None, lat=None,
@@ -1003,6 +1005,7 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
     ref_wid = manager.Value('val', None)
     ref_hgt = manager.Value('val', None)
     ref_geotrans = manager.Value('val', None)
+    ref_arr = manager.Array('i', range(10))
 
     # create dictionary of all inputs needed for correction lyr extraction
     lyr_input_dict = {
@@ -1196,7 +1199,7 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
 
         # dict of parameters to make life easier
         parameters = {
-            'ref_arr' : [],
+            'ref_arr' : ref_arr,
             'ref_wid' : ref_wid,
             'ref_hgt' : ref_hgt,
             'ref_geotrans' : ref_geotrans,
@@ -1231,18 +1234,23 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         results = []
 
         # extract enumerated list and last index variable for ease
-        enum_list = list(enumerate(product_dict[0]))
-        last_idx = len(enum_list) - 1
+        enum_list = enumerate(product_dict[0])
+        last_idx = len(list(enum_list)) - 1
+
+        # for i in enum_list:
+        #     print(i)
+        
+        # print(last_idx)
 
         for i in enum_list:
             partial_process_ifg = partial(iterate_ifg, **parameters, i = i)
             # iterate_ifg creates ref_arr, ref_wid, and ref_geotrans if 
             # key_ind is 0 so we need to wait before we launch other processes
             if key_ind == 0:
-                result = pool.apply_async(partial_process_ifg, callback=update_values)
-                pool.close()
-                pool.join()
-                pool = multiprocessing.Pool(processes=find_num_threads(num_threads))
+                result = pool.apply(partial_process_ifg, callback=update_values)
+                print(result)
+                print(type(result))
+                # ref_arr = result
             else:
                 result = pool.apply_async(partial_process_ifg)
                 results.append(result)
@@ -1250,15 +1258,10 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         for result in results:
             result.wait()
 
-        # special treatment for last process
-        # partial_process_ifg = partial(iterate_ifg, **parameters, i = last_idx)
-        # final_result = pool.apply_async(partial_process_ifg)
-        # final_result.wait()
-
         ifg = product_dict[1][last_idx][0]
         prev_outname = os.path.abspath(os.path.join(workdir, ifg))
 
-        prog_bar.close()
+        # prog_bar.close()
 
         # check directory for quality control plots
         plots_subdir = os.path.abspath(os.path.join(outDir,
@@ -1277,7 +1280,7 @@ def iterate_ifg(ref_arr, full_product_dict, prods_TOTbbox, layers, arrres, ranke
     ifg = product_dict[1][i[0]][0]
     outname = os.path.abspath(os.path.join(workdir, ifg))
             # Update progress bar
-    prog_bar.update(i[0]+1, suffix=ifg)
+    # prog_bar.update(i[0]+1, suffix=ifg)
 
             # Extract/crop metadata layers
     if any(":/science/grids/imagingGeometry"
@@ -1416,7 +1419,7 @@ def iterate_ifg(ref_arr, full_product_dict, prods_TOTbbox, layers, arrres, ranke
                             os.path.join(workdir, ifg)]
         dim_check(ref_arr, prod_arr)
 
-    return [ref_wid.value,ref_hgt.value,ref_geotrans.value,ref_arr]
+    return ref_arr
 
 
 def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, dem,
