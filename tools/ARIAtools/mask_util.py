@@ -101,7 +101,8 @@ def prep_mask(product_dict, maskfilename, bbox_file, prods_TOTbbox, proj,
 
         ## Update water-mask with lakes/ponds union
         mask_file = gdal.Open(maskfilename, gdal.GA_Update)
-        mask_array = lake_masks*gdal.Open(maskfilename).ReadAsArray()
+        arr = gdal.Open(maskfilename).ReadAsArray()
+        mask_array = multiply(lake_masks, arr)
         mask_file.GetRasterBand(1).WriteArray(mask_array)
         #Delete temp files
         del lake_masks, mask_file
@@ -200,6 +201,22 @@ def prep_mask(product_dict, maskfilename, bbox_file, prods_TOTbbox, proj,
 
     return mask
 
+def multiply(lake_masks, arr):
+    """Function which multiplies the two arrays while keeping dimensions
+    into consideration. Example: If arr1.shape is (6, 12) and arr2.shape is
+    (7, 13), it will return a (6,12) shape array since those are the 
+    common dimensions.
+    """
+    lake_masks_shape = lake_masks.shape
+    arr_shape = arr.shape
+
+    common_shape = tuple(min(lake_masks_dim, arr_dim) for lake_masks_dim, arr_dim in zip(lake_masks_shape, arr_shape))
+
+    lake_masks_adjusted = lake_masks[:common_shape[0], :common_shape[1]]
+    test_arr_adjusted = arr[:common_shape[0], :common_shape[1]]
+
+    mask_array = lake_masks_adjusted * test_arr_adjusted
+    return mask_array
 
 def make_mask(ds_crop, lc):
     # values outside crop; 0 is really just extra check
