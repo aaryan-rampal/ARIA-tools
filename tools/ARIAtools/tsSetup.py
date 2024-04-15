@@ -11,6 +11,7 @@ Extract minimum required information and files to carry-out time series analysis
 Specifically, extract unwrapped interferogram, coherence, perp baseline,
 LOS file(s), and (where available) tropospheric correction layers.
 """
+import pickle
 
 from ARIAtools.ARIA_global_variables import ARIA_EXTERNAL_CORRECTIONS, \
     ARIA_TROPO_MODELS, ARIA_STACK_DEFAULTS, ARIA_STACK_OUTFILES
@@ -491,12 +492,12 @@ def main(inps=None):
     layers = ['unwrappedPhase', 'coherence']
     print('\nExtracting unwrapped phase, coherence, '
           'and connected components for each interferogram pair')
-    ref_arr_record = export_products(standardproduct_info.products[1],
-                                     tropo_total=False,
-                                     layers=layers,
-                                     rankedResampling=inps.rankedResampling,
-                                     **export_dict)
-
+    # with open('saved_objects.pkl', 'wb') as f:
+    #     pickle.dump((standardproduct_info, layers, inps.rankedResampling, export_dict), f)
+    # output_tiff = 'saved_gdal_dataset.tif'
+    # gdal.GetDriverByName('GTiff').CreateCopy(output_tiff, demfile)
+    # import sys
+    # sys.exit(0)
     # Remove pairing and pass combined dictionary of all layers
     extract_dict = defaultdict(list)
     for d in standardproduct_info.products[1]:
