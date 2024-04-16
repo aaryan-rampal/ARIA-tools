@@ -977,13 +977,12 @@ def find_num_threads(num_threads):
     except ValueError:
         return os.cpu_count()      
 
-def update_values(result):
-    # print(result)
-    print('got here')
 
 def call_this(e):
     # print('got error')
     traceback.print_exception(type(e), e, e.__traceback__)
+
+import time
 
 def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                     arrres, rankedResampling=False, dem=None, lat=None,
@@ -1000,6 +999,8 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
     """
     # Progress bar
     from ARIAtools import progBar
+    # global cnt
+    # cnt = 0
 
     global global_dem
     global_dem = dem
@@ -1204,7 +1205,7 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         product_dict = [[j[key] for j in full_product_dict],
                         [j["pair_name"] for j in full_product_dict]]
         num += len(product_dict[0])
-    holds_arrays = [[] for _ in range(num)]
+    once = False
     for key_ind, key in enumerate(layers):
         product_dict = [[j[key] for j in full_product_dict],
                         [j["pair_name"] for j in full_product_dict]]
@@ -1250,34 +1251,57 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
             'prog_bar': prog_bar,
             'key_ind': key_ind,
             # 'error_queue': error_queue
+            'once': once
         }        
 
 
         # extract enumerated list and last index variable for ease
         last_idx = len(list(enumerate(product_dict[0]))) - 1
 
+
         # print('2')
+        idx = 0
         for i in enumerate(product_dict[0]):
             # print('2.1')
-            partial_process_ifg = partial(iterate_ifg, **parameters, i = i)
+            partial_process_ifg = partial(iterate_ifg, **parameters, i = i, thread_idx = idx)
+            idx+=1
             # iterate_ifg creates ref_arr, ref_wid, and ref_geotrans if 
             # key_ind is 0 so we need to wait before we launch other processes
-            if key_ind == 0:
+            # if key_ind == 0:
+            #     start = time.time()
+            #     result = pool.apply_async(partial_process_ifg, callback=update_values, error_callback=call_this)
+            #     # results.append(result)
+            #     result.get()
+            #     print(time.time() - start)
+            #     # print('1')
+            # elif not switch:
+            #     # pool.close()
+            #     # pool.join()
+            #     print(len(results))
+            #     ref_arr =  results[-1].get()
+            #     # pool = multiprocessing.Pool(processes=num_processes)
+            #     parameters['ref_arr'] = ref_arr
+            #     switch = True
+            #     # print('2')
+            # else:
+            #     result = pool.apply_async(partial_process_ifg, callback=update_values, error_callback=call_this)
+            #     results.append(result)
+            #     # print('3')
+            if not once:
+                start = time.time()
                 result = pool.apply_async(partial_process_ifg, callback=update_values, error_callback=call_this)
-                results.append(result)
-                # print('1')
-            elif not switch:
-                # pool.close()
-                # pool.join()
-                ref_arr =  results[-1].get()
-                # pool = multiprocessing.Pool(processes=num_processes)
+                ref_arr =  result.get()
                 parameters['ref_arr'] = ref_arr
-                switch = True
-                # print('2')
-            else:
-                result = pool.apply_async(partial_process_ifg, callback=update_values, error_callback=call_this)
+                once = True
+                parameters['once'] = True
+                # print(time.time() - start)
                 results.append(result)
-                # print('3')
+            else:
+                start = time.time()
+                result = pool.apply_async(partial_process_ifg, callback=update_values, error_callback=call_this)
+                # print(time.time() - start)
+                results.append(result)
+                # continue
         
         # print('3')
         # pool.close()
@@ -1300,6 +1324,16 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
 
     print('yo')
     pool.close()
+    # for idx,result in enumerate(results):
+    #     try:
+    #         result.get(timeout = 0.01)
+    #     except Exception as e:
+    #         print('timeout error at ', idx)
+    #         start = time.time()
+    #         # result.get()
+    #         # result.terminate()
+    #         end = time.time()
+    #         # print(end - start)
     pool.join()
 
     ref_arr =  results[-1].get()
@@ -1309,27 +1343,25 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
 
     return [ref_hgt, ref_wid, ref_geotrans, prev_outname]
 
-def decode_values(arr):
-    # ref_wid = wid.value
-    # ref_hgt = hgt.value
-    # ref_geotrans = pickle.loads(geotrans)
-    ref_arr = pickle.loads(arr)
-
-    # return ref_wid, ref_hgt, ref_geotrans, ref_arr
-    return ref_arr
-
-def encode_values(arr):
-    ref_arr_m = pickle.dumps(arr)
-    return ref_arr_m
+def update_values(result):
+    # print(result)
+    # cnt += 1
+    # print(cnt)
+    # print(result)
+    # print(result[-1])
+    pass
+    # pass
 
 def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampling, lat
                 , lon, mask, outDir, outputFormat, stitchMethodType, verbose, num_threads, multilooking
                 , bounds, dem_bounds, outputFormatPhys, gdal_warp_kwargs, key, workdir, i, 
-                product_dict, prog_bar, key_ind, ref_arr = None):
+                product_dict, prog_bar, key_ind, thread_idx, ref_arr = None, once = True):
     
     # global_dem= gdal.Open('saved_gdal_dataset.tif')
     # ref_arr = decode_values(ref_arr_m)
-
+    # print(global_dem)
+    start = time.time()
+    # print(once, ref_arr)
     ifg = product_dict[1][i[0]][0]
     outname = os.path.abspath(os.path.join(workdir, ifg))
             # Update progress bar
@@ -1471,7 +1503,6 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
             update_file.GetRasterBand(1).WriteArray(mask_arr)
             del update_file, mask_arr
 
-    # print('6')
             # Track consistency of dimensions
     if key_ind == 0:
         # print(outname)
@@ -1488,7 +1519,17 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
         dim_check(ref_arr, prod_arr)
     
     # print('8')
-    return ref_arr
+    # end = time.time() - start
+    # print(end)
+    # print(ref_arr.shape)
+
+    # return [np.array(ref_arr), time.time() - start]
+    print('end')
+    print(f"thread {thread_idx} reached 6 at {time.time() - start}")
+    if once:
+        return 0
+    else:
+        return ref_arr
 
 
 def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, dem,
