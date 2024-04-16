@@ -492,6 +492,12 @@ def main(inps=None):
     layers = ['unwrappedPhase', 'coherence']
     print('\nExtracting unwrapped phase, coherence, '
           'and connected components for each interferogram pair')
+    ref_arr_record = export_products(standardproduct_info.products[1],
+                            tropo_total=False,
+                            layers=layers,
+                            rankedResampling=inps.rankedResampling,
+                            **export_dict)
+
     # with open('saved_objects.pkl', 'wb') as f:
     #     pickle.dump((standardproduct_info, layers, inps.rankedResampling, export_dict), f)
     # output_tiff = 'saved_gdal_dataset.tif'
