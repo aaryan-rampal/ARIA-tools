@@ -1194,8 +1194,17 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
     switch = False
     # output_tiff = 'saved_gdal_dataset.tif'
     # gdal.GetDriverByName('GTiff').CreateCopy(output_tiff, dem)
-    pool = multiprocessing.Pool(processes=find_num_threads(num_threads))
+    import math
+    num_processes = math.floor(find_num_threads(num_threads)/2)
+    # pool = multiprocessing.Pool(processes=num_processes)
+    pool = multiprocessing.Pool(processes=500)
+    num = 0
     layers = [i for i in layers if i not in ext_corr_lyrs]
+    for key_ind, key in enumerate(layers):
+        product_dict = [[j[key] for j in full_product_dict],
+                        [j["pair_name"] for j in full_product_dict]]
+        num += len(product_dict[0])
+    holds_arrays = [[] for _ in range(num)]
     for key_ind, key in enumerate(layers):
         product_dict = [[j[key] for j in full_product_dict],
                         [j["pair_name"] for j in full_product_dict]]
@@ -1258,10 +1267,10 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                 results.append(result)
                 # print('1')
             elif not switch:
-                pool.close()
-                pool.join()
+                # pool.close()
+                # pool.join()
                 ref_arr =  results[-1].get()
-                pool = multiprocessing.Pool(processes=find_num_threads(num_threads))
+                # pool = multiprocessing.Pool(processes=num_processes)
                 parameters['ref_arr'] = ref_arr
                 switch = True
                 # print('2')
