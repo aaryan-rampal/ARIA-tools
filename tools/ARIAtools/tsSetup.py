@@ -475,7 +475,7 @@ def main(inps=None):
     export_dict = {
         'bbox_file': standardproduct_info.bbox_file,
         'prods_TOTbbox': prods_TOTbbox,
-        'dem': demfile,
+        # 'dem': demfile,
         'arrres': arrres,
         'lat': Latitude,
         'lon': Longitude,
@@ -492,18 +492,18 @@ def main(inps=None):
     layers = ['unwrappedPhase', 'coherence']
     print('\nExtracting unwrapped phase, coherence, '
           'and connected components for each interferogram pair')
-    ref_arr_record = export_products(standardproduct_info.products[1],
-                            tropo_total=False,
-                            layers=layers,
-                            rankedResampling=inps.rankedResampling,
-                            **export_dict)
-
     # with open('saved_objects.pkl', 'wb') as f:
     #     pickle.dump((standardproduct_info, layers, inps.rankedResampling, export_dict), f)
     # output_tiff = 'saved_gdal_dataset.tif'
     # gdal.GetDriverByName('GTiff').CreateCopy(output_tiff, demfile)
     # import sys
     # sys.exit(0)
+    ref_arr_record = export_products(standardproduct_info.products[1],
+                            tropo_total=False,
+                            layers=layers,
+                            rankedResampling=inps.rankedResampling,
+                            **export_dict)
+
     # Remove pairing and pass combined dictionary of all layers
     extract_dict = defaultdict(list)
     for d in standardproduct_info.products[1]:

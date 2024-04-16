@@ -980,10 +980,9 @@ def find_num_threads(num_threads):
 def update_values(result):
     # print(result)
     print('got here')
-    pass
 
 def call_this(e):
-    print('got error')
+    # print('got error')
     traceback.print_exception(type(e), e, e.__traceback__)
 
 def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
@@ -1001,6 +1000,9 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
     """
     # Progress bar
     from ARIAtools import progBar
+
+    global global_dem
+    global_dem = dem
 
     if not layers and not tropo_total:
         return  # only bbox
@@ -1190,8 +1192,8 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
     # Loop through other user expected layers
     results = []
     switch = False
-    output_tiff = 'saved_gdal_dataset.tif'
-    gdal.GetDriverByName('GTiff').CreateCopy(output_tiff, dem)
+    # output_tiff = 'saved_gdal_dataset.tif'
+    # gdal.GetDriverByName('GTiff').CreateCopy(output_tiff, dem)
     pool = multiprocessing.Pool(processes=find_num_threads(num_threads))
     layers = [i for i in layers if i not in ext_corr_lyrs]
     for key_ind, key in enumerate(layers):
@@ -1245,15 +1247,16 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         # extract enumerated list and last index variable for ease
         last_idx = len(list(enumerate(product_dict[0]))) - 1
 
-
+        # print('2')
         for i in enumerate(product_dict[0]):
+            # print('2.1')
             partial_process_ifg = partial(iterate_ifg, **parameters, i = i)
             # iterate_ifg creates ref_arr, ref_wid, and ref_geotrans if 
             # key_ind is 0 so we need to wait before we launch other processes
             if key_ind == 0:
                 result = pool.apply_async(partial_process_ifg, callback=update_values, error_callback=call_this)
                 results.append(result)
-                print('1')
+                # print('1')
             elif not switch:
                 pool.close()
                 pool.join()
@@ -1261,12 +1264,13 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                 pool = multiprocessing.Pool(processes=find_num_threads(num_threads))
                 parameters['ref_arr'] = ref_arr
                 switch = True
-                print('2')
+                # print('2')
             else:
                 result = pool.apply_async(partial_process_ifg, callback=update_values, error_callback=call_this)
                 results.append(result)
-                print('3')
+                # print('3')
         
+        # print('3')
         # pool.close()
         # pool.join()
 
@@ -1278,11 +1282,14 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         # check directory for quality control plots
         plots_subdir = os.path.abspath(os.path.join(outDir,
                                        'metadatalyr_plots'))
+        
+        print('1')
         # delete directory if empty
         if os.path.exists(plots_subdir):
             if len(os.listdir(plots_subdir)) == 0:
                 shutil.rmtree(plots_subdir)
 
+    print('yo')
     pool.close()
     pool.join()
 
@@ -1311,7 +1318,7 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
                 , bounds, dem_bounds, outputFormatPhys, gdal_warp_kwargs, key, workdir, i, 
                 product_dict, prog_bar, key_ind, ref_arr = None):
     
-    dem= gdal.Open('saved_gdal_dataset.tif')
+    # global_dem= gdal.Open('saved_gdal_dataset.tif')
     # ref_arr = decode_values(ref_arr_m)
 
     ifg = product_dict[1][i[0]][0]
@@ -1319,32 +1326,32 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
             # Update progress bar
     # prog_bar.update(i[0]+1, suffix=ifg)
 
-    print('1')
+    # print('1')
 
             # Extract/crop metadata layers
     if any(":/science/grids/imagingGeometry"
                 in s for s in i[1]):
                 # make VRT pointing to metadata layers in standard product
-        print('1.1')
-        print(outname)
+        # print('1.1')
+        # print(outname)
         hgt_field, model_name, outname = prep_metadatalayers(outname,
-                                                    i[1], dem, key, layers)
+                                                    i[1], global_dem, key, layers)
 
         # Interpolate/intersect with DEM before cropping
-        print(hgt_field, model_name)
-        print('1.2')
-        print(outname)
+        # print(hgt_field, model_name)
+        # print('1.2')
+        # print(outname)
         finalize_metadata(outname, bounds, dem_bounds,
-                                prods_TOTbbox, dem, lat, lon, hgt_field,
+                                prods_TOTbbox, global_dem, lat, lon, hgt_field,
                                 i[1], mask, outputFormatPhys,
                                 verbose=verbose)
-        print('1.3')
+        # print('1.3')
 
             # Extract/crop full res layers, except for "unw" and "conn_comp"
             # which requires advanced stitching
     elif key != 'unwrappedPhase' and \
                     key != 'connectedComponents':
-        print('2')
+        # print('2')
         if outputFormat == 'VRT':
                     # building the virtual vrt
             gdal.BuildVRT(outname + "_uncropped" + '.vrt', i[1])
@@ -1366,7 +1373,7 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
             # Extract/crop phs and conn_comp layers
     else:
                 # get connected component input files
-        print('3')
+        # print('3')
         conn_files = full_product_dict[i[0]]['connectedComponents']
         prod_bbox_files = \
                     full_product_dict[i[0]]['productBoundingBoxFrames']
@@ -1416,7 +1423,7 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
                                                 save_fig=False,
                                                 overwrite=True)
                         # verbose=verbose)
-            print('4')
+            # print('4')
 
                     # If necessary, resample phs/conn_comp file
             if multilooking is not None:
@@ -1433,7 +1440,7 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
                     update_file.GetRasterBand(1).WriteArray(mask_arr)
                     del update_file, mask_arr
 
-    print('5')
+    # print('5')
     if key != 'unwrappedPhase' and \
                     key != 'connectedComponents' and \
                     not any(":/science/grids/imagingGeometry"
@@ -1455,10 +1462,10 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
             update_file.GetRasterBand(1).WriteArray(mask_arr)
             del update_file, mask_arr
 
-    print('6')
+    # print('6')
             # Track consistency of dimensions
     if key_ind == 0:
-        print(outname)
+        # print(outname)
         ref_wid, ref_hgt, ref_geotrans, \
                     _, _ = get_basic_attrs(outname + '.vrt')
         ref_arr = [ref_wid, ref_hgt, ref_geotrans,
@@ -1471,7 +1478,7 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
         
         dim_check(ref_arr, prod_arr)
     
-    print('8')
+    # print('8')
     return ref_arr
 
 
@@ -1535,11 +1542,11 @@ def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, dem,
     if metadatalyr_name not in nohgt_lyrs:
         tmp_name = outname+'_temp'
         # Define lat/lon/height arrays for metadata layers
-        print(outname+'.vrt')
+        # print(outname+'.vrt')
         a = gdal.Open(outname+'.vrt')
         b = gdal.Open(outname+'.vrt').GetMetadataItem(hgt_field)
-        print(a)
-        print('b', b)
+        # print(a)
+        # print('b', b)
         heightsMeta = np.array(gdal.Open(outname+'.vrt').GetMetadataItem(
             hgt_field)[1:-1].split(','), dtype='float32')
 
