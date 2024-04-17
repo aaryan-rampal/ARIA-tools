@@ -1,0 +1,88 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        
+
+
+
+
+        
+        
+        {
+            "name": "Debug parallel",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/arampal/tools/miniforge/envs/ARIA-tools/bin/ariaTSsetup.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "-f",
+                "../products/*.nc",
+                "-b",
+                "25.2525 25.2646 50.8925 50.9129",
+                "-nt",
+                "all"
+            ],
+            "cwd": "/home/arampal/aria-tools-test/new",
+            // "logToFile": true,
+            // "env": {"PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "1"},
+            "subProcess": false
+        },
+        {
+            "name": "Debug numpy",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/arampal/tools/miniforge/envs/ARIA-tools/bin/ariaTSsetup.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "-f",
+                "../products/*.nc",
+                "-b",
+                "25.2525 25.2646 50.8925 50.9129",
+                "-nt",
+                "all",
+                "--mask",
+                "Download"
+            ],
+            "cwd": "/home/arampal/aria-tools-test/new",
+            // "logToFile": true,
+            // "env": {"PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "1"},
+            "subProcess": false
+       },
+        {
+            "name": "Debug numpy (USA)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/arampal/tools/miniforge/envs/ARIA-tools/bin/ariaTSsetup.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "-f",
+                "../products/*.nc",
+                "-b",
+                "29.8459 29.8506 -98.2566 -98.247",
+                "-nt",
+                "all",
+                // "--mask",
+                // "Download"
+            ],
+            "cwd": "/home/arampal/aria-tools-test/new",
+            // "logToFile": true,
+            // "env": {"PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "1"},
+            "subProcess": false
+        },
+        {
+            "name": "Unit test parallel",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/arampal/ARIA-tools/tools/ARIAtools/unit_test.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "/home/arampal/aria-tools-test/new",
+            // "logToFile": true,
+            // "env": {"PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "1"},
+            "subProcess": true
+        },
+    ]
+}
