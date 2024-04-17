@@ -12,6 +12,7 @@ If no layer is specified, extract product bounding box shapefile(s)
 """
 
 
+import pdb
 from functools import partial
 import multiprocessing
 import os
@@ -1206,6 +1207,7 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
     num = 0
     layers = [i for i in layers if i not in ext_corr_lyrs]
     once = False
+    last = False
     for key_ind, key in enumerate(layers):
         product_dict = [[j[key] for j in full_product_dict],
                         [j["pair_name"] for j in full_product_dict]]
@@ -1301,6 +1303,11 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                 global_params['once'] = True
                 # print(time.time() - start)
                 results.append(result)
+            elif key_ind == len(layers)-1 and i[0] == len(product_dict[0])-1:
+                # pdb.set_trace()
+                global_params['once'] = False
+                result = pool.apply_async(partial_process_ifg, callback=update_values, error_callback=call_this)
+                results.append(result)
             else:
                 start = time.time()
                 result = pool.apply_async(partial_process_ifg, callback=update_values, error_callback=call_this)
@@ -1321,13 +1328,13 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         plots_subdir = os.path.abspath(os.path.join(outDir,
                                        'metadatalyr_plots'))
         
-        print('1')
+        # print('1')
         # delete directory if empty
         if os.path.exists(plots_subdir):
             if len(os.listdir(plots_subdir)) == 0:
                 shutil.rmtree(plots_subdir)
 
-    print('yo')
+    # print('yo')
     pool.close()
     # for idx,result in enumerate(results):
     #     try:
@@ -1341,6 +1348,7 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
     #         # print(end - start)
     pool.join()
 
+    # pdb.set_trace()
     ref_arr =  results[-1].get()
     ref_hgt = ref_arr[1]
     ref_wid = ref_arr[0]
@@ -1369,10 +1377,10 @@ def add_to_time(times, start):
         times.append(time.time() - times[-1] - start)
 
 def iterate_ifg(i, thread_idx):
-    start = time.time()
-    times = []
     # start = time.time()
-    add_to_time(times, start)
+    # times = []
+    # start = time.time()
+    # add_to_time(times, start)
     global global_params
     # print(global_params)
     full_product_dict = global_params['full_product_dict']
@@ -1402,7 +1410,7 @@ def iterate_ifg(i, thread_idx):
     once = global_params.get('once', True)    
 
 
-    add_to_time(times, start)
+    # add_to_time(times, start)
     # global_dem= gdal.Open('saved_gdal_dataset.tif')
     # ref_arr = decode_values(ref_arr_m)
     # print(global_dem)
@@ -1415,7 +1423,7 @@ def iterate_ifg(i, thread_idx):
     # print('1')
 
             # Extract/crop metadata layers
-    add_to_time(times, start)
+    # add_to_time(times, start)
     if any(":/science/grids/imagingGeometry"
                 in s for s in i[1]):
                 # make VRT pointing to metadata layers in standard product
@@ -1526,7 +1534,7 @@ def iterate_ifg(i, thread_idx):
                                 gdal.Open(j + '.vrt').ReadAsArray()
                     update_file.GetRasterBand(1).WriteArray(mask_arr)
                     del update_file, mask_arr
-    add_to_time(times, start)
+    # add_to_time(times, start)
 
     # print('5')
     if key != 'unwrappedPhase' and \
@@ -1551,7 +1559,7 @@ def iterate_ifg(i, thread_idx):
             del update_file, mask_arr
 
             # Track consistency of dimensions
-    add_to_time(times, start)
+    # add_to_time(times, start)
     if key_ind == 0:
         # print(outname)
         ref_wid, ref_hgt, ref_geotrans, \
@@ -1566,8 +1574,8 @@ def iterate_ifg(i, thread_idx):
         
         dim_check(ref_arr, prod_arr)
 
-    add_to_time(times, start)
-    print(f"thread {thread_idx} reached 6 at {time.time() - start} with {times}")
+    # add_to_time(times, start)
+    # print(f"thread {thread_idx} reached 6 at {time.time() - start} with {times}")
     if once:
         return 0
     else:
@@ -1653,12 +1661,12 @@ def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox,
                                      (data_array.RasterXSize-1)), data_array.RasterXSize,
                                     dtype='float32')
 
-        da_dem = open_rasterio(dem.GetDescription(),
+        da_dem = open_rasterio(global_dem.GetDescription(),
                                band_as_variable=True)['band_1']
 
         # interpolate the DEM to the GUNW lat/lon
         da_dem1 = da_dem.interp(x=lon[0, :],
-                                y=lat[:, 0]).fillna(dem.GetRasterBand(1).GetNoDataValue())
+                                y=lat[:, 0]).fillna(global_dem.GetRasterBand(1).GetNoDataValue())
 
         # hack to get an stack of coordinates for the interpolator
         # to interpolate in the right shape
@@ -1676,10 +1684,10 @@ def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox,
 
         # Save file
         renderVRT(tmp_name, out_interpolated,
-                  geotrans=dem.GetGeoTransform(),
+                  geotrans=global_dem.GetGeoTransform(),
                   drivername=outputFormat,
                   gdal_fmt=data_array.ReadAsArray().dtype.name,
-                  proj=dem.GetProjection(),
+                  proj=global_dem.GetProjection(),
                   nodata=data_array.GetRasterBand(1).GetNoDataValue())
         del out_interpolated
 
