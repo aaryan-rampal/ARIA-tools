@@ -1,7 +1,7 @@
 {
     "version": "0.2.0",
     "configurations": [
-        
+
 
 
 
@@ -23,7 +23,7 @@
                 "-nt",
                 "all"
             ],
-            "cwd": "/home/arampal/aria-tools-test/new",
+            "cwd": "/home/arampal/aria-tools-test/few-products-bak",
             // "logToFile": true,
             // "env": {"PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "1"},
             "subProcess": false

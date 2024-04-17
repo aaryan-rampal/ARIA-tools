@@ -87,11 +87,10 @@ demfile = gdal.Open('saved_gdal_dataset.tif')
 
 export_dict['dem'] = demfile
 
+import pdb
 # Call the function with the loaded objects
 ref_arr_record = export_products(a,
                                  tropo_total=False,
                                  layers=layers,
                                  **export_dict)
-import pdb
-pdb.set_trace()
 print(ref_arr_record)
