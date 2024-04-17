@@ -11,6 +11,7 @@ Extract and organize specified layer(s).
 If no layer is specified, extract product bounding box shapefile(s)
 """
 
+
 from functools import partial
 import multiprocessing
 import os
@@ -41,6 +42,7 @@ import pyproj
 from pyproj import CRS, Transformer
 from rioxarray import open_rasterio
 import rasterio as rio
+from multiprocessing import Manager
 
 gdal.UseExceptions()
 # Suppress warnings
@@ -49,6 +51,7 @@ gdal.PushErrorHandler('CPLQuietErrorHandler')
 log = logging.getLogger(__name__)
 
 
+global_params = Manager().dict()
 def createParser():
     """Extract specified product layers. The default will export all layers."""
     import argparse
@@ -662,11 +665,11 @@ def merged_productbbox(metadata_dict, product_dict, workdir='./',
         prods_TOTbbox_metadatalyr, arrres, proj
 
 
-def prep_metadatalayers(outname, metadata_arr, dem, key, layers,
+def prep_metadatalayers(outname, metadata_arr, key, layers,
                         driver='ENVI'):
     """ Wrapper to prep metadata layer for extraction """
 
-    if dem is None:
+    if global_dem is None:
         raise Exception('No DEM input specified. '
                         'Cannot extract 3D imaging geometry '
                         'layers without DEM to intersect with.')
@@ -1003,6 +1006,7 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
     # cnt = 0
 
     global global_dem
+    global global_params
     global_dem = dem
 
     if not layers and not tropo_total:
@@ -1198,13 +1202,9 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
     import math
     num_processes = math.floor(find_num_threads(num_threads)/2)
     # pool = multiprocessing.Pool(processes=num_processes)
-    pool = multiprocessing.Pool(processes=500)
+    pool = multiprocessing.Pool(processes=64)
     num = 0
     layers = [i for i in layers if i not in ext_corr_lyrs]
-    for key_ind, key in enumerate(layers):
-        product_dict = [[j[key] for j in full_product_dict],
-                        [j["pair_name"] for j in full_product_dict]]
-        num += len(product_dict[0])
     once = False
     for key_ind, key in enumerate(layers):
         product_dict = [[j[key] for j in full_product_dict],
@@ -1225,7 +1225,10 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         # gdal.GetDriverByName('GTiff').CreateCopy(output_tiff, dem)
 
         # dict of parameters to make life easier
-        parameters = {
+        if 'global_params' not in globals():
+            global_params = {}
+
+        params = {
             'full_product_dict': full_product_dict,
             'prods_TOTbbox': prods_TOTbbox,
             'layers': layers,
@@ -1254,6 +1257,8 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
             'once': once
         }        
 
+        for key, val in params.items():
+            global_params[key] = val
 
         # extract enumerated list and last index variable for ease
         last_idx = len(list(enumerate(product_dict[0]))) - 1
@@ -1263,7 +1268,7 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
         idx = 0
         for i in enumerate(product_dict[0]):
             # print('2.1')
-            partial_process_ifg = partial(iterate_ifg, **parameters, i = i, thread_idx = idx)
+            partial_process_ifg = partial(iterate_ifg, i = i, thread_idx = idx)
             idx+=1
             # iterate_ifg creates ref_arr, ref_wid, and ref_geotrans if 
             # key_ind is 0 so we need to wait before we launch other processes
@@ -1291,9 +1296,9 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                 start = time.time()
                 result = pool.apply_async(partial_process_ifg, callback=update_values, error_callback=call_this)
                 ref_arr =  result.get()
-                parameters['ref_arr'] = ref_arr
+                global_params['ref_arr'] = ref_arr
                 once = True
-                parameters['once'] = True
+                global_params['once'] = True
                 # print(time.time() - start)
                 results.append(result)
             else:
@@ -1352,15 +1357,55 @@ def update_values(result):
     pass
     # pass
 
-def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampling, lat
-                , lon, mask, outDir, outputFormat, stitchMethodType, verbose, num_threads, multilooking
-                , bounds, dem_bounds, outputFormatPhys, gdal_warp_kwargs, key, workdir, i, 
-                product_dict, prog_bar, key_ind, thread_idx, ref_arr = None, once = True):
-    
+def add_to_time(times, start):
+    if (len(times) == 0):
+        times.append(time.time() - start)
+    else:
+        # print(times)
+        # print(time.time())
+        # print(times[-1])
+        # import sys
+        # sys.exit(0)
+        times.append(time.time() - times[-1] - start)
+
+def iterate_ifg(i, thread_idx):
+    start = time.time()
+    times = []
+    # start = time.time()
+    add_to_time(times, start)
+    global global_params
+    # print(global_params)
+    full_product_dict = global_params['full_product_dict']
+    prods_TOTbbox = global_params['prods_TOTbbox']
+    layers = global_params['layers']
+    arrres = global_params['arrres']
+    rankedResampling = global_params['rankedResampling']
+    lat = global_params['lat']
+    lon = global_params['lon']
+    mask = global_params['mask']
+    outDir = global_params['outDir']
+    outputFormat = global_params['outputFormat']
+    stitchMethodType = global_params['stitchMethodType']
+    verbose = global_params['verbose']
+    num_threads = global_params['num_threads']
+    multilooking = global_params['multilooking']
+    bounds = global_params['bounds']
+    dem_bounds = global_params['dem_bounds']
+    outputFormatPhys = global_params['outputFormatPhys']
+    gdal_warp_kwargs = global_params['gdal_warp_kwargs']
+    key = global_params['key']
+    workdir = global_params['workdir']
+    product_dict = global_params['product_dict']
+    prog_bar = global_params['prog_bar']
+    key_ind = global_params['key_ind']
+    ref_arr = global_params.get('ref_arr', None)
+    once = global_params.get('once', True)    
+
+
+    add_to_time(times, start)
     # global_dem= gdal.Open('saved_gdal_dataset.tif')
     # ref_arr = decode_values(ref_arr_m)
     # print(global_dem)
-    start = time.time()
     # print(once, ref_arr)
     ifg = product_dict[1][i[0]][0]
     outname = os.path.abspath(os.path.join(workdir, ifg))
@@ -1370,20 +1415,21 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
     # print('1')
 
             # Extract/crop metadata layers
+    add_to_time(times, start)
     if any(":/science/grids/imagingGeometry"
                 in s for s in i[1]):
                 # make VRT pointing to metadata layers in standard product
         # print('1.1')
         # print(outname)
         hgt_field, model_name, outname = prep_metadatalayers(outname,
-                                                    i[1], global_dem, key, layers)
+                                                    i[1], key, layers)
 
         # Interpolate/intersect with DEM before cropping
         # print(hgt_field, model_name)
         # print('1.2')
         # print(outname)
         finalize_metadata(outname, bounds, dem_bounds,
-                                prods_TOTbbox, global_dem, lat, lon, hgt_field,
+                                prods_TOTbbox, lat, lon, hgt_field,
                                 i[1], mask, outputFormatPhys,
                                 verbose=verbose)
         # print('1.3')
@@ -1480,6 +1526,7 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
                                 gdal.Open(j + '.vrt').ReadAsArray()
                     update_file.GetRasterBand(1).WriteArray(mask_arr)
                     del update_file, mask_arr
+    add_to_time(times, start)
 
     # print('5')
     if key != 'unwrappedPhase' and \
@@ -1504,6 +1551,7 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
             del update_file, mask_arr
 
             # Track consistency of dimensions
+    add_to_time(times, start)
     if key_ind == 0:
         # print(outname)
         ref_wid, ref_hgt, ref_geotrans, \
@@ -1517,22 +1565,16 @@ def iterate_ifg(full_product_dict, prods_TOTbbox, layers, arrres, rankedResampli
                             os.path.join(workdir, ifg)]
         
         dim_check(ref_arr, prod_arr)
-    
-    # print('8')
-    # end = time.time() - start
-    # print(end)
-    # print(ref_arr.shape)
 
-    # return [np.array(ref_arr), time.time() - start]
-    print('end')
-    print(f"thread {thread_idx} reached 6 at {time.time() - start}")
+    add_to_time(times, start)
+    print(f"thread {thread_idx} reached 6 at {time.time() - start} with {times}")
     if once:
         return 0
     else:
         return ref_arr
 
 
-def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, dem,
+def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, 
                       lat, lon, hgt_field, prod_list, mask=None,
                       outputFormat='ENVI', verbose=None, num_threads='2'):
     """Interpolate and extract 2D metadata layer.
@@ -1545,11 +1587,11 @@ def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, dem,
 
     # get final shape
     # MG: add option to pass dem path as string
-    if isinstance(dem, str):
-        arrres = gdal.Open(dem)
+    if isinstance(global_dem, str):
+        arrres = gdal.Open(global_dem)
     else:
         # for gdal instance
-        arrres = gdal.Open(dem.GetDescription())
+        arrres = gdal.Open(global_dem.GetDescription())
     arrshape = [arrres.RasterYSize, arrres.RasterXSize]
     ref_geotrans = arrres.GetGeoTransform()
     arrres = [abs(ref_geotrans[1]), abs(ref_geotrans[-1])]
