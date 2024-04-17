@@ -1212,7 +1212,7 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                    in s for s in i[1]):
                 # make VRT pointing to metadata layers in standard product
                 hgt_field, model_name, outname = prep_metadatalayers(outname,
-                                                      i[1], dem, key, layers, True)
+                                                      i[1], key, layers, dem, True)
 
                 # Interpolate/intersect with DEM before cropping
                 finalize_metadata(outname, bounds, dem_bounds,
