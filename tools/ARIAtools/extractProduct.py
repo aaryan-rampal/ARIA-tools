@@ -667,7 +667,7 @@ def merged_productbbox(metadata_dict, product_dict, workdir='./',
 
 
 def prep_metadatalayers(outname, metadata_arr, key, layers,
-                        driver='ENVI'):
+                        driver='ENVI', use_global = False):
     """ Wrapper to prep metadata layer for extraction """
 
     if global_dem is None:
@@ -989,6 +989,373 @@ def call_this(e):
 import time
 
 def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
+                    arrres, rankedResampling=False, dem=None, lat=None,
+                    lon=None, mask=None, outDir='./', outputFormat='VRT',
+                    stitchMethodType='overlap', verbose=None, num_threads='2',
+                    multilooking=None, tropo_total=False, model_names=[]):
+    """Export layer and 2D meta-data layers (at the product resolution).
+    The function finalize_metadata is called to derive the 2D metadata layer.
+    Dem/lat/lon arrays must be passed for this process.
+    The keys specify which layer to extract from the dictionary.
+    All products are cropped by the bounds from the input bbox_file,
+    and clipped to the track extent denoted by the input prods_TOTbbox.
+    Optionally, a user may pass a mask-file.
+    """
+    # Progress bar
+    from ARIAtools import progBar
+
+    if not layers and not tropo_total:
+        return  # only bbox
+
+    # initiate tracker of output dimensions
+    ref_wid = None
+    ref_hgt = None
+    ref_geotrans = None
+
+    # create dictionary of all inputs needed for correction lyr extraction
+    lyr_input_dict = {
+        'layers': layers,
+        'prods_TOTbbox': prods_TOTbbox,
+        'dem': dem,
+        'lat': lat,
+        'lon': lon,
+        'mask': mask,
+        'verbose': verbose,
+        'multilooking': multilooking,
+        'rankedResampling': rankedResampling,
+        'num_threads': num_threads
+    }
+
+    # get bounds
+    bounds = open_shapefile(bbox_file, 0, 0).bounds
+    lyr_input_dict['bounds'] = bounds
+    if dem is not None:
+        dem_gt = dem.GetGeoTransform()
+        dem_bounds = [dem_gt[0],
+                      dem_gt[3] + (dem_gt[-1]*dem.RasterYSize),
+                      dem_gt[0] + (dem_gt[1]*dem.RasterXSize),
+                      dem_gt[3]]
+        lyr_input_dict['dem_bounds'] = dem_bounds
+
+    # Mask specified, so file must be physically extracted,
+    # cannot proceed with VRT format. Defaulting to ENVI format.
+    if (outputFormat == 'VRT' and mask is not None) or \
+            (outputFormat == 'VRT' and multilooking is not None):
+        outputFormat = 'ENVI'
+    # Set output format layers that must always be physically extracted
+    outputFormatPhys = 'ENVI'
+    if outputFormat != 'VRT':
+        outputFormatPhys = outputFormat
+    lyr_input_dict['outputFormat'] = outputFormatPhys
+
+    # Initialize warp dict
+    gdal_warp_kwargs = {'format': outputFormat,
+                        'cutlineDSName': prods_TOTbbox,
+                        'outputBounds': bounds,
+                        'xRes': arrres[0],
+                        'yRes': arrres[1],
+                        'targetAlignedPixels': True,
+                        'multithread': True,
+                        'options': [f'NUM_THREADS={num_threads}']}
+
+    # If specified, extract tropo layers
+    tropo_lyrs = ['troposphereWet', 'troposphereHydrostatic']
+    if tropo_total or list(set.intersection(*map(set,
+                                                 [layers, tropo_lyrs]))) != []:
+        # set input keys
+        lyr_prefix = '/science/grids/corrections/external/troposphere/'
+        key = 'troposphereTotal'
+        wet_key = 'troposphereWet'
+        dry_key = 'troposphereHydrostatic'
+        workdir = os.path.join(outDir, key)
+        lyr_input_dict['lyr_path'] = lyr_prefix
+        lyr_input_dict['key'] = key
+        lyr_input_dict['sec_key'] = dry_key
+        lyr_input_dict['ref_key'] = wet_key
+        lyr_input_dict['tropo_total'] = tropo_total
+        lyr_input_dict['workdir'] = workdir
+
+        # loop through valid models
+        for i in model_names:
+            model = wet_key + f'_{i}'
+            tropo_lyrs.append(model)
+            tropo_lyrs.append(dry_key + f'_{i}')
+            product_dict = [
+                [j[model] for j in full_product_dict if model in j.keys()],
+                [j["pair_name"]
+                    for j in full_product_dict if model in j.keys()]
+            ]
+
+            # set iterative keys
+            prev_outname = os.path.abspath(os.path.join(workdir, i))
+            prog_bar = progBar.progressBar(maxValue=len(product_dict[0]),
+                                           prefix=f'Generating: {model} {key} - ')
+            lyr_input_dict['prog_bar'] = prog_bar
+            lyr_input_dict['product_dict'] = product_dict
+
+            # extract layers
+            handle_epoch_layers(**lyr_input_dict)
+
+            # track valid files
+            prev_outname = os.path.abspath(os.path.join(workdir, i,
+                                                        product_dict[1][0][0]))
+            if os.path.exists(prev_outname + '.vrt'):
+                prev_outname_check = deepcopy(prev_outname)
+
+        # track consistency of dimensions
+        if 'prev_outname_check' in locals():
+            ref_wid, ref_hgt, ref_geotrans, \
+                _, _ = get_basic_attrs(prev_outname_check + '.vrt')
+            ref_arr = [ref_wid, ref_hgt, ref_geotrans,
+                       prev_outname]
+
+    # If specified, extract solid earth tides
+    tropo_lyrs = list(set(tropo_lyrs))
+    ext_corr_lyrs = tropo_lyrs + ['solidEarthTide', 'troposphereTotal']
+    if list(set.intersection(*map(set,
+                                  [layers, ['solidEarthTide']]))) != []:
+        lyr_prefix = '/science/grids/corrections/external/tides/solidEarth/'
+        key = 'solidEarthTide'
+        ref_key = key
+        sec_key = key
+        product_dict = \
+            [[j[key] for j in full_product_dict if key in j.keys()],
+             [j["pair_name"] for j in full_product_dict if key in j.keys()]]
+
+        workdir = os.path.join(outDir, key)
+        prev_outname = deepcopy(workdir)
+        prog_bar = progBar.progressBar(maxValue=len(product_dict[0]),
+                                       prefix='Generating: '+key+' - ')
+
+        # set input keys
+        lyr_input_dict['prog_bar'] = prog_bar
+        lyr_input_dict['product_dict'] = product_dict
+        lyr_input_dict['lyr_path'] = lyr_prefix
+        lyr_input_dict['key'] = key
+        lyr_input_dict['sec_key'] = sec_key
+        lyr_input_dict['ref_key'] = ref_key
+        lyr_input_dict['tropo_total'] = False
+        lyr_input_dict['workdir'] = workdir
+
+        # extract layers
+        handle_epoch_layers(**lyr_input_dict)
+
+        # Track consistency of dimensions
+        prev_outname = os.path.abspath(os.path.join(workdir,
+                                       product_dict[1][0][0]))
+        ref_wid, ref_hgt, ref_geotrans, \
+            _, _ = get_basic_attrs(prev_outname + '.vrt')
+        ref_arr = [ref_wid, ref_hgt, ref_geotrans,
+                   prev_outname]
+
+    # If specified, extract ionosphere long wavelength
+    ext_corr_lyrs += ['ionosphere']
+
+    if list(set.intersection(*map(set,
+                                  [layers, ['ionosphere']]))) != []:
+        lyr_prefix = '/science/grids/corrections/derived/ionosphere/ionosphere'
+        key = 'ionosphere'
+        product_dict = \
+            [[j[key] for j in full_product_dict if key in j.keys()],
+             [j["pair_name"] for j in full_product_dict if key in j.keys()]]
+
+        workdir = os.path.join(outDir, key)
+        prev_outname = deepcopy(workdir)
+        prog_bar = progBar.progressBar(maxValue=len(product_dict[0]),
+                                       prefix='Generating: '+key+' - ')
+
+
+        lyr_input_dict = dict(input_iono_files = None,
+                              arrres = arrres,
+                              output_iono = None,
+                              output_format =  outputFormat, 
+                              bounds = bounds,
+                              clip_json = prods_TOTbbox,
+                              mask_file = mask,
+                              verbose = verbose,
+                              overwrite = True)
+
+        for i, layer in enumerate(product_dict[0]):
+            outname = os.path.abspath(os.path.join(workdir, product_dict[1][i][0]))
+            lyr_input_dict['input_iono_files'] = layer
+            lyr_input_dict['output_iono'] = outname
+            export_ionosphere(**lyr_input_dict)
+
+
+    # Loop through other user expected layers
+    layers = [i for i in layers if i not in ext_corr_lyrs]
+    for key_ind, key in enumerate(layers):
+        product_dict = [[j[key] for j in full_product_dict],
+                        [j["pair_name"] for j in full_product_dict]]
+        workdir = os.path.join(outDir, key)
+
+        prog_bar = progBar.progressBar(maxValue=len(
+            product_dict[0]), prefix='Generating: '+key+' - ')
+
+        # If specified workdir doesn't exist, create it
+        if not os.path.exists(workdir):
+            os.mkdir(workdir)
+
+        # Iterate through all IFGs
+        # TODO can we wrap this into funtion and run it
+        # with multiprocessing, to gain speed up
+        for i in enumerate(product_dict[0]):
+            ifg = product_dict[1][i[0]][0]
+            outname = os.path.abspath(os.path.join(workdir, ifg))
+            # Update progress bar
+            prog_bar.update(i[0]+1, suffix=ifg)
+
+            # Extract/crop metadata layers
+            if any(":/science/grids/imagingGeometry"
+                   in s for s in i[1]):
+                # make VRT pointing to metadata layers in standard product
+                hgt_field, model_name, outname = prep_metadatalayers(outname,
+                                                      i[1], dem, key, layers, True)
+
+                # Interpolate/intersect with DEM before cropping
+                finalize_metadata(outname, bounds, dem_bounds,
+                                  prods_TOTbbox, dem, lat, lon, hgt_field,
+                                  i[1], mask, outputFormatPhys,
+                                  verbose=verbose)
+
+            # Extract/crop full res layers, except for "unw" and "conn_comp"
+            # which requires advanced stitching
+            elif key != 'unwrappedPhase' and \
+                    key != 'connectedComponents':
+                if outputFormat == 'VRT':
+                    # building the virtual vrt
+                    gdal.BuildVRT(outname + "_uncropped" + '.vrt', i[1])
+                    # building the cropped vrt
+                    gdal.Warp(outname+'.vrt',
+                              outname+'_uncropped.vrt',
+                              options=gdal.WarpOptions(**gdal_warp_kwargs))
+                else:
+                    # building the VRT
+                    gdal.BuildVRT(outname + '.vrt', i[1])
+                    gdal.Warp(outname,
+                              outname+'.vrt',
+                              options=gdal.WarpOptions(**gdal_warp_kwargs))
+
+                    # Update VRT
+                    gdal.Translate(outname+'.vrt', outname,
+                                   options=gdal.TranslateOptions(format="VRT"))
+
+            # Extract/crop phs and conn_comp layers
+            else:
+                # get connected component input files
+                conn_files = full_product_dict[i[0]]['connectedComponents']
+                prod_bbox_files = \
+                    full_product_dict[i[0]]['productBoundingBoxFrames']
+                outFileConnComp = \
+                    os.path.join(outDir, 'connectedComponents', ifg)
+
+                # Check if phs phase and conn_comp files are already generated
+                outFilePhs = os.path.join(outDir, 'unwrappedPhase', ifg)
+                if not os.path.exists(outFilePhs) or not \
+                        os.path.exists(outFileConnComp):
+                    phs_files = full_product_dict[i[0]]['unwrappedPhase']
+                    # calling the stitching methods
+                    if stitchMethodType == 'overlap':
+                        product_stitch_overlap(phs_files, conn_files,
+                                               arrres,
+                                               prod_bbox_files, bounds,
+                                               prods_TOTbbox,
+                                               outFileUnw=outFilePhs,
+                                               outFileConnComp=outFileConnComp,
+                                               #mask=mask,
+                                               outputFormat=outputFormatPhys,
+                                               verbose=verbose)
+
+                    elif stitchMethodType == '2stage':
+                        product_stitch_2stage(phs_files,
+                                              conn_files,
+                                              arrres,
+                                              bounds,
+                                              prods_TOTbbox,
+                                              outFileUnw=outFilePhs,
+                                              outFileConnComp=outFileConnComp,
+                                              #mask=mask,
+                                              outputFormat=outputFormatPhys,
+                                              verbose=verbose)
+
+                    elif stitchMethodType == 'sequential':
+                        product_stitch_sequential(phs_files,
+                                                  conn_files,
+                                                  arrres=arrres,
+                                                  bounds=bounds,
+                                                  clip_json=prods_TOTbbox,
+                                                  output_unw=outFilePhs,
+                                                  output_conn=outFileConnComp,
+                                                  #mask_file=mask,  # str filename
+                                                  output_format=outputFormatPhys,
+                                                  range_correction=True,
+                                                  save_fig=False,
+                                                  overwrite=True)
+                        # verbose=verbose)
+
+                    # If necessary, resample phs/conn_comp file
+                    if multilooking is not None:
+                        resampleRaster(outFilePhs, multilooking, bounds,
+                                       prods_TOTbbox, rankedResampling,
+                                       outputFormat=outputFormatPhys,
+                                       num_threads=num_threads)
+                    # Apply mask (if specified)
+                    if mask is not None:
+                        for j in [outFileConnComp, outFilePhs]:
+                            update_file = gdal.Open(j, gdal.GA_Update)
+                            mask_arr = mask.ReadAsArray() * \
+                                gdal.Open(j + '.vrt').ReadAsArray()
+                            update_file.GetRasterBand(1).WriteArray(mask_arr)
+                            del update_file, mask_arr
+
+            if key != 'unwrappedPhase' and \
+                    key != 'connectedComponents' and \
+                    not any(":/science/grids/imagingGeometry"
+                       in s for s in i[1]) and \
+                    not any(":/science/grids/corrections"
+                       in s for s in i[1]):
+                # If necessary, resample raster
+                if multilooking is not None:
+                    resampleRaster(outname, multilooking, bounds,
+                                   prods_TOTbbox,
+                                   rankedResampling,
+                                   outputFormat=outputFormatPhys,
+                                   num_threads=num_threads)
+                # Apply mask (if specified)
+                if mask is not None:
+                    update_file = gdal.Open(outname, gdal.GA_Update)
+                    mask_arr = mask.ReadAsArray() * \
+                        gdal.Open(outname + '.vrt').ReadAsArray()
+                    update_file.GetRasterBand(1).WriteArray(mask_arr)
+                    del update_file, mask_arr
+
+            # Track consistency of dimensions
+            if key_ind == 0:
+                ref_wid, ref_hgt, ref_geotrans, \
+                    _, _ = get_basic_attrs(outname + '.vrt')
+                ref_arr = [ref_wid, ref_hgt, ref_geotrans,
+                           os.path.join(workdir, ifg)]
+            else:
+                prod_wid, prod_hgt, prod_geotrans, \
+                    _, _ = get_basic_attrs(outname + '.vrt')
+                prod_arr = [prod_wid, prod_hgt, prod_geotrans,
+                            os.path.join(workdir, ifg)]
+                dim_check(ref_arr, prod_arr)
+            prev_outname = os.path.abspath(os.path.join(workdir, ifg))
+
+        prog_bar.close()
+
+        # check directory for quality control plots
+        plots_subdir = os.path.abspath(os.path.join(outDir,
+                                       'metadatalyr_plots'))
+        # delete directory if empty
+        if os.path.exists(plots_subdir):
+            if len(os.listdir(plots_subdir)) == 0:
+                shutil.rmtree(plots_subdir)
+
+    return [ref_hgt, ref_wid, ref_geotrans, prev_outname]
+
+def export_products_threads(full_product_dict, bbox_file, prods_TOTbbox, layers,
                     arrres, rankedResampling=False, dem=None, lat=None,
                     lon=None, mask=None, outDir='./', outputFormat='VRT',
                     stitchMethodType='overlap', verbose=None, num_threads='2',

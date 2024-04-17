@@ -23,7 +23,7 @@
                 "-nt",
                 "all"
             ],
-            "cwd": "/home/arampal/aria-tools-test/few-products-bak",
+            "cwd": "/home/arampal/aria-tools-test/few-products",
             // "logToFile": true,
             // "env": {"PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "1"},
             "subProcess": false
