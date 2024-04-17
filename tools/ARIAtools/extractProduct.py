@@ -667,12 +667,10 @@ def merged_productbbox(metadata_dict, product_dict, workdir='./',
 
 
 def prep_metadatalayers(outname, metadata_arr, key, layers,
-                        driver='ENVI', dem = None, use_global = False):
+                        driver='ENVI', use_global = False):
     """ Wrapper to prep metadata layer for extraction """
-    if use_global:
-        dem = global_dem
 
-    if dem is None:
+    if global_dem is None:
         raise Exception('No DEM input specified. '
                         'Cannot extract 3D imaging geometry '
                         'layers without DEM to intersect with.')
@@ -1212,12 +1210,12 @@ def export_products(full_product_dict, bbox_file, prods_TOTbbox, layers,
                    in s for s in i[1]):
                 # make VRT pointing to metadata layers in standard product
                 hgt_field, model_name, outname = prep_metadatalayers(outname,
-                                                      i[1], key, layers, dem, True)
+                                                      i[1], dem, key, layers, True)
 
                 # Interpolate/intersect with DEM before cropping
                 finalize_metadata(outname, bounds, dem_bounds,
                                   prods_TOTbbox, dem, lat, lon, hgt_field,
-                                  i[1], mask, outputFormatPhys, num_threads,
+                                  i[1], mask, outputFormatPhys,
                                   verbose=verbose)
 
             # Extract/crop full res layers, except for "unw" and "conn_comp"
@@ -1807,7 +1805,7 @@ def iterate_ifg(i, thread_idx):
         # print(outname)
         finalize_metadata(outname, bounds, dem_bounds,
                                 prods_TOTbbox, lat, lon, hgt_field,
-                                i[1], mask, outputFormatPhys, num_threads,
+                                i[1], mask, outputFormatPhys,
                                 verbose=verbose)
         # print('1.3')
 
@@ -1953,7 +1951,7 @@ def iterate_ifg(i, thread_idx):
 
 def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox, 
                       lat, lon, hgt_field, prod_list, mask=None,
-                      outputFormat='ENVI', dem = None, use_global = False, verbose=None, num_threads='2'):
+                      outputFormat='ENVI', verbose=None, num_threads='2'):
     """Interpolate and extract 2D metadata layer.
     2D metadata layer is derived by interpolating and then intersecting
     3D layers with a DEM.
@@ -1961,16 +1959,14 @@ def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox,
     """
     # import dependencies
     from scipy.interpolate import RegularGridInterpolator
-    if use_global:
-        dem = global_dem
 
     # get final shape
     # MG: add option to pass dem path as string
-    if isinstance(dem, str):
-        arrres = gdal.Open(dem)
+    if isinstance(global_dem, str):
+        arrres = gdal.Open(global_dem)
     else:
         # for gdal instance
-        arrres = gdal.Open(dem.GetDescription())
+        arrres = gdal.Open(global_dem.GetDescription())
     arrshape = [arrres.RasterYSize, arrres.RasterXSize]
     ref_geotrans = arrres.GetGeoTransform()
     arrres = [abs(ref_geotrans[1]), abs(ref_geotrans[-1])]
@@ -2032,12 +2028,12 @@ def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox,
                                      (data_array.RasterXSize-1)), data_array.RasterXSize,
                                     dtype='float32')
 
-        da_dem = open_rasterio(dem.GetDescription(),
+        da_dem = open_rasterio(global_dem.GetDescription(),
                                band_as_variable=True)['band_1']
 
         # interpolate the DEM to the GUNW lat/lon
         da_dem1 = da_dem.interp(x=lon[0, :],
-                                y=lat[:, 0]).fillna(dem.GetRasterBand(1).GetNoDataValue())
+                                y=lat[:, 0]).fillna(global_dem.GetRasterBand(1).GetNoDataValue())
 
         # hack to get an stack of coordinates for the interpolator
         # to interpolate in the right shape
@@ -2055,10 +2051,10 @@ def finalize_metadata(outname, bbox_bounds, dem_bounds, prods_TOTbbox,
 
         # Save file
         renderVRT(tmp_name, out_interpolated,
-                  geotrans=dem.GetGeoTransform(),
+                  geotrans=global_dem.GetGeoTransform(),
                   drivername=outputFormat,
                   gdal_fmt=data_array.ReadAsArray().dtype.name,
-                  proj=dem.GetProjection(),
+                  proj=global_dem.GetProjection(),
                   nodata=data_array.GetRasterBand(1).GetNoDataValue())
         del out_interpolated
 
