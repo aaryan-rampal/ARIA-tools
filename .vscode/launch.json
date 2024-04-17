@@ -29,6 +29,26 @@
             "subProcess": false
         },
         {
+            "name": "Debug parallel (full products)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/arampal/tools/miniforge/envs/ARIA-tools/bin/ariaTSsetup.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "-f",
+                "../products-full/*.nc",
+                "-b",
+                "25.2525 25.2646 50.8925 50.9129",
+                "-nt",
+                "all"
+            ],
+            "cwd": "/home/arampal/aria-tools-test/few-products",
+            // "logToFile": true,
+            // "env": {"PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "1"},
+            "subProcess": false
+        },
+        {
             "name": "Debug numpy",
             "type": "debugpy",
             "request": "launch",
