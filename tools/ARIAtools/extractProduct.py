@@ -1570,7 +1570,7 @@ def export_products_threads(full_product_dict, bbox_file, prods_TOTbbox, layers,
     import math
     num_processes = math.floor(find_num_threads(num_threads)/2)
     # pool = multiprocessing.Pool(processes=num_processes)
-    pool = multiprocessing.Pool(processes=64)
+    pool = multiprocessing.Pool(processes=num_processes*2)
     num = 0
     layers = [i for i in layers if i not in ext_corr_lyrs]
     once = False
