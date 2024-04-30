@@ -31,7 +31,7 @@ from ARIAtools.shapefile_util import open_shapefile
 from ARIAtools.vrtmanager import resampleRaster, layerCheck, \
     get_basic_attrs, dim_check
 from ARIAtools.extractProduct import merged_productbbox, prep_dem, \
-    export_products, gacos_correction
+    export_products, export_products_threads, gacos_correction
 
 gdal.UseExceptions()
 # Suppress warnings
@@ -518,7 +518,7 @@ def main(inps=None):
     layers = ['bPerpendicular']
     print('\nExtracting perpendicular baseline grids for each '
           'interferogram pair')
-    prod_arr_record = export_products(standardproduct_info.products[1],
+    prod_arr_record = export_products_threads(standardproduct_info.products[1],
                                       tropo_total=False,
                                       layers=layers,
                                       **export_dict)
